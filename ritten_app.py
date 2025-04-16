@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import json
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
@@ -14,7 +15,7 @@ def connect_to_sheets():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("innate-life-427109-h3-b1e9a0d013fd.json", scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
     client = gspread.authorize(creds)
     return client
 
