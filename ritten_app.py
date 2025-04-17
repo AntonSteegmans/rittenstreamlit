@@ -147,7 +147,6 @@ with tab1:
                     st.success("✅ Rit toegevoegd")
                     st.rerun()
 
-    st.subheader("📄 Overzicht")
 
     st.divider()
     st.subheader("✏️ Rit bewerken of verwijderen")
@@ -205,6 +204,7 @@ with tab1:
                             st.success("🗑️ Rit verwijderd")
                             st.rerun()
 
+    st.subheader("📄 Overzicht")
     st.dataframe(df, use_container_width=True)
 
 # === ⚙️ TAB 2: Tarievenbeheer ===
