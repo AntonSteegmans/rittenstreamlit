@@ -198,7 +198,7 @@ with tab1:
 
             with col4:
                 if st.form_submit_button("🗑️ Verwijder rit"):
-                    sheet_ritten.delete_rows(selected_index + 2)
+                    sheet_ritten.delete_rows(int(selected_index) + 2)
                     st.success("🗑️ Rit verwijderd")
                     st.rerun()
 
