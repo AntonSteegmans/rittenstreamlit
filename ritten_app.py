@@ -198,11 +198,9 @@ with tab1:
 
             with col4:
                 if st.form_submit_button("🗑️ Verwijder rit"):
-                    if st.checkbox("⚠️ Zeker weten?"):
-                        if st.checkbox("⚠️ Echt zeker?"):
-                            sheet_ritten.delete_rows(selected_index + 2)
-                            st.success("🗑️ Rit verwijderd")
-                            st.rerun()
+                    sheet_ritten.delete_rows(selected_index + 2)
+                    st.success("🗑️ Rit verwijderd")
+                    st.rerun()
 
     st.subheader("📄 Overzicht")
     st.dataframe(df, use_container_width=True)
