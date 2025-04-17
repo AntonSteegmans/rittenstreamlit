@@ -148,6 +148,63 @@ with tab1:
                     st.rerun()
 
     st.subheader("📄 Overzicht")
+
+    st.divider()
+    st.subheader("✏️ Rit bewerken of verwijderen")
+
+    if df.empty:
+        st.info("Er zijn nog geen ritten om te bewerken.")
+    else:
+        df["__label__"] = df["Datum"] + " – " + df["Klant"]
+        selected_label = st.selectbox("Selecteer een rit:", df["__label__"])
+
+        selected_index = df[df["__label__"] == selected_label].index[0]
+        selected_rit = df.loc[selected_index]
+
+        with st.form("edit_rit_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                edit_datum = st.date_input("Datum", pd.to_datetime(selected_rit["Datum"]))
+                edit_klant = st.text_input("Klant", selected_rit["Klant"])
+                edit_starttijd = st.text_input("Starttijd (HH:MM)", selected_rit["Starttijd"])
+            with col2:
+                edit_eindtijd = st.text_input("Eindtijd (HH:MM)", selected_rit["Eindtijd"])
+                edit_kilometers = st.number_input("Kilometers", value=float(selected_rit["Kilometers"]), format="%.2f")
+                edit_gefactureerd = st.checkbox("Gefactureerd?", selected_rit["Gefactureerd"] == "Ja")
+
+            col3, col4 = st.columns([2, 1])
+            with col3:
+                if st.form_submit_button("✅ Opslaan wijziging"):
+                    tarief = get_tarief_for_date(edit_datum)
+                    result = calculate_payment(edit_starttijd, edit_eindtijd, edit_kilometers, tarief)
+                    if result is None:
+                        st.error("❌ Ongeldige tijd")
+                    else:
+                        nieuwe_rit = [
+                            edit_datum.strftime("%Y-%m-%d"),
+                            edit_klant,
+                            edit_starttijd,
+                            edit_eindtijd,
+                            edit_kilometers,
+                            "Ja" if edit_gefactureerd else "Nee",
+                            result["Normale Uren"],
+                            result["Nachturen"],
+                            result["Surplus Uren"],
+                            result["Totale Uren"],
+                            result["Totaal"]
+                        ]
+                        sheet_ritten.update(f"A{selected_index + 2}:K{selected_index + 2}", [nieuwe_rit])
+                        st.success("✅ Rit aangepast")
+                        st.rerun()
+
+            with col4:
+                if st.form_submit_button("🗑️ Verwijder rit"):
+                    if st.checkbox("⚠️ Zeker weten?"):
+                        if st.checkbox("⚠️ Echt zeker?"):
+                            sheet_ritten.delete_rows(selected_index + 2)
+                            st.success("🗑️ Rit verwijderd")
+                            st.rerun()
+
     st.dataframe(df, use_container_width=True)
 
 # === ⚙️ TAB 2: Tarievenbeheer ===
