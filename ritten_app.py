@@ -1,14 +1,15 @@
 import streamlit as st
 import pandas as pd
 import gspread
-import json
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
 # === SETTINGS ===
-SHEET_NAME = "Rittenregistratie"  # pas aan als je een andere sheetnaam gebruikt
+SHEET_NAME = "Rittenregistratie"  # Naam van je Google Sheet
+RITTEN_TAB = "Ritten"
+TARIEVEN_TAB = "Tarieven"
 
-# === Google Sheets Connectie ===
+# === Connectie maken met Google Sheets ===
 def connect_to_sheets():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -20,8 +21,8 @@ def connect_to_sheets():
     return client
 
 client = connect_to_sheets()
-sheet_ritten = client.open(SHEET_NAME).worksheet("Ritten")
-sheet_tarieven = client.open(SHEET_NAME).worksheet("Tarieven")
+sheet_ritten = client.open(SHEET_NAME).worksheet(RITTEN_TAB)
+sheet_tarieven = client.open(SHEET_NAME).worksheet(TARIEVEN_TAB)
 
 # === Data laden ===
 def load_ritten():
@@ -29,32 +30,21 @@ def load_ritten():
     return pd.DataFrame(data)
 
 def load_tarieven():
-    data = sheet_tarieven.get_all_values()
-    #st.write("📋 Sheet RAW data:", data)
-
-    if not data:
-        st.warning("⚠️ Het tabblad 'Tarieven' is leeg of onjuist.")
-        return pd.DataFrame()
-
-    headers = data[0]
-    rows = data[1:]
-    df = pd.DataFrame(rows, columns=headers)
-
-    #st.write("🔎 Headers gedetecteerd:", headers)
+    data = sheet_tarieven.get_all_records()
+    df = pd.DataFrame(data)
+    df["Vanaf"] = pd.to_datetime(df["Vanaf"], errors="coerce")
     return df
 
-
-# === Tarieven ophalen per datum ===
+# === Tarief ophalen op basis van datum ===
 def get_tarief_for_date(datum):
     tarieven = load_tarieven()
-    tarieven["Vanaf"] = pd.to_datetime(tarieven["Vanaf"], errors="coerce")  # <- fix!
     datum = pd.to_datetime(datum)
     geldig = tarieven[tarieven["Vanaf"] <= datum]
     if geldig.empty:
         return tarieven.iloc[0]
     return geldig.iloc[-1]
 
-# === Berekening uren & totaal ===
+# === Berekening van uren en totaalbedrag ===
 def calculate_payment(start_time, end_time, total_km, tarief):
     try:
         start = datetime.strptime(start_time, "%H:%M")
@@ -78,14 +68,11 @@ def calculate_payment(start_time, end_time, total_km, tarief):
         night_hours = max(0, min(night_hours, remaining_hours))
         normal_hours = remaining_hours - night_hours
 
-        # 👉 fix: zorg dat alle tarieven floats zijn
-        tarief = {k: float(str(v).replace(",", ".")) if k != "Vanaf" else v for k, v in tarief.items()}
-
         payment = (
-            normal_hours * tarief["day_rate"] +
-            night_hours * tarief["night_rate"] +
-            surplus_hours * tarief["surplus_rate"] +
-            total_km * tarief["km_rate"]
+            normal_hours * float(tarief["day_rate"]) +
+            night_hours * float(tarief["night_rate"]) +
+            surplus_hours * float(tarief["surplus_rate"]) +
+            total_km * float(tarief["km_rate"])
         )
 
         return {
@@ -100,17 +87,16 @@ def calculate_payment(start_time, end_time, total_km, tarief):
         st.error(f"❌ Fout bij berekening: {e}")
         return None
 
-
-# === App interface ===
-st.set_page_config("Rittenregistratie", layout="wide")
+# === Streamlit Interface ===
+st.set_page_config(page_title="🚐 Rittenregistratie", layout="wide")
 tab1, tab2 = st.tabs(["📋 Registratie", "⚙️ Tarieven"])
 
-# === 📋 TAB 1: Ritregistratie ===
+# === 📋 TAB 1: Registraties ===
 with tab1:
     df = load_ritten()
     st.title("🚐 Rittenregistratie")
 
-    with st.form("toevoeg_rit", clear_on_submit=True):
+    with st.form("toevoeg_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
             datum = st.date_input("Datum", datetime.today())
@@ -121,15 +107,13 @@ with tab1:
             kilometers = st.number_input("Kilometers", min_value=0.0, format="%.2f")
             gefactureerd = st.checkbox("Gefactureerd?")
 
-        if st.form_submit_button("Toevoegen"):
+        if st.form_submit_button("➕ Rit toevoegen"):
             if not klant or not starttijd or not eindtijd:
-                st.error("❌ Vul alle velden in.")
+                st.error("❌ Vul alle velden in!")
             else:
                 tarief = get_tarief_for_date(datum)
                 result = calculate_payment(starttijd, eindtijd, kilometers, tarief)
-                if result is None:
-                    st.error("❌ Ongeldige tijd")
-                else:
+                if result:
                     nieuwe_rit = [
                         datum.strftime("%Y-%m-%d"),
                         klant,
@@ -147,20 +131,23 @@ with tab1:
                     st.success("✅ Rit toegevoegd")
                     st.rerun()
 
+    st.subheader("📄 Overzicht")
+    if df.empty:
+        st.info("Er zijn nog geen ritten geregistreerd.")
+    else:
+        st.dataframe(df, use_container_width=True)
 
     st.divider()
     st.subheader("✏️ Rit bewerken of verwijderen")
 
-    if df.empty:
-        st.info("Er zijn nog geen ritten om te bewerken.")
-    else:
+    if not df.empty:
         df["__label__"] = df["Datum"] + " – " + df["Klant"]
         selected_label = st.selectbox("Selecteer een rit:", df["__label__"])
 
         selected_index = df[df["__label__"] == selected_label].index[0]
         selected_rit = df.loc[selected_index]
 
-        with st.form("edit_rit_form"):
+        with st.form("bewerken_form"):
             col1, col2 = st.columns(2)
             with col1:
                 edit_datum = st.date_input("Datum", pd.to_datetime(selected_rit["Datum"]))
@@ -176,9 +163,7 @@ with tab1:
                 if st.form_submit_button("✅ Opslaan wijziging"):
                     tarief = get_tarief_for_date(edit_datum)
                     result = calculate_payment(edit_starttijd, edit_eindtijd, edit_kilometers, tarief)
-                    if result is None:
-                        st.error("❌ Ongeldige tijd")
-                    else:
+                    if result:
                         nieuwe_rit = [
                             edit_datum.strftime("%Y-%m-%d"),
                             edit_klant,
@@ -192,7 +177,7 @@ with tab1:
                             result["Totale Uren"],
                             result["Totaal"]
                         ]
-                        sheet_ritten.update(f"A{selected_index + 2}:K{selected_index + 2}", [nieuwe_rit])
+                        sheet_ritten.update(f"A{int(selected_index)+2}:K{int(selected_index)+2}", [nieuwe_rit])
                         st.success("✅ Rit aangepast")
                         st.rerun()
 
@@ -202,9 +187,6 @@ with tab1:
                     st.success("🗑️ Rit verwijderd")
                     st.rerun()
 
-    st.subheader("📄 Overzicht")
-    st.dataframe(df, use_container_width=True)
-
 # === ⚙️ TAB 2: Tarievenbeheer ===
 with tab2:
     st.title("⚙️ Tarieven beheren")
@@ -213,18 +195,18 @@ with tab2:
     st.dataframe(tarieven_df, use_container_width=True)
 
     st.subheader("➕ Nieuw tarief")
-    with st.form("nieuw_tarief"):
+    with st.form("nieuw_tarief_form"):
         vanaf = st.date_input("Geldig vanaf", datetime.today())
         col1, col2 = st.columns(2)
         with col1:
-            day = st.number_input("Dagtarief", value=14.45, step=0.01)
-            night = st.number_input("Nachttarief", value=15.57, step=0.01)
+            day = st.number_input("Dagtarief (€)", value=14.45, step=0.01)
+            night = st.number_input("Nachttarief (€)", value=15.57, step=0.01)
         with col2:
-            surplus = st.number_input("Surplustarief", value=19.52, step=0.01)
-            km = st.number_input("Km-vergoeding", value=0.29, step=0.01)
+            surplus = st.number_input("Surplustarief (€)", value=19.52, step=0.01)
+            km = st.number_input("Km-vergoeding (€)", value=0.29, step=0.01)
 
-        if st.form_submit_button("Toevoegen tarief"):
-            bestaande = pd.to_datetime(tarieven_df["Vanaf"], errors="coerce").dt.normalize()
+        if st.form_submit_button("➕ Tarief toevoegen"):
+            bestaande = tarieven_df["Vanaf"].dt.normalize()
             if pd.to_datetime(vanaf).normalize() in bestaande.values:
                 st.warning("⚠️ Er bestaat al een tarief met deze ingangsdatum.")
             else:
